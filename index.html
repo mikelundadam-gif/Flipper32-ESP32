@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flipper32 - Cute Blob WiFi Demo</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0b0b0f;
+            color: #ffd700;
+            text-align: center;
+            margin: 20px;
+        }
+        h1 { color: #00bfff; }
+        h2 { color: #00ffff; }
+        img { max-width: 320px; margin: 15px; border: 2px solid #00bfff; border-radius: 8px; }
+        button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #00bfff;
+            color: black;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 20px;
+            font-weight: bold;
+        }
+        button:hover { background: #00ffff; }
+        #codeContainer {
+            display: none;
+            background: #111;
+            border: 2px solid #00bfff;
+            padding: 15px;
+            text-align: left;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-width: 90%;
+            margin: 0 auto;
+            color: #0f0;
+        }
+        pre { margin: 0; }
+    </style>
+</head>
+<body>
+
+    <h1>Flipper32 Demo Project</h1>
+    <p>Educational ESP32 project with joystick menu, OLED display & captive WiFi portal.<br>
+    Cute white blob mascot (inspired by SCP-999) on screen!</p>
+
+    <h2>Inspired by SCP-999 – The Cutest Blob!</h2>
+    <img src="https://i.ytimg.com/vi/kVht4jPe42I/maxresdefault.jpg" alt="SCP-999 cute orange blob hugging">
+    <img src="https://i.ytimg.com/vi/JTB5T5aldNo/maxresdefault.jpg" alt="SCP-999 tickle monster yellow slime">
+
+    <h2>Hardware Used</h2>
+    <p>ESP32 WROOM + breadboard + colorful jumper wires + joystick + 0.96" SSD1306 OLED</p>
+    <img src="https://content.instructables.com/FHP/OYNM/MKHYRK2F/FHPOYNMMKHYRK2F.jpg?auto=webp&fit=bounds&frame=1&height=1024&width=1024" alt="ESP32 on breadboard with wires">
+    <img src="https://m.media-amazon.com/images/I/61+Ia76U-1L._AC_UF894,1000_QL80_.jpg" alt="0.96 inch SSD1306 OLED display module">
+    <img src="http://microcontrollerslab.com/wp-content/uploads/2021/12/Arduino-UNO-with-Joystick-Module-connection-diagram.jpg" alt="Joystick module wiring example">
+
+    <h2>To get the Firmware & Code</h2>
+    <p><strong>Click the button below – you need:</strong><br>
+    • Arduino IDE software<br>
+    • ESP32 board support installed<br>
+    • 0.96" SSD1306 OLED (I2C, 128x64)<br>
+    • Analog joystick module<br>
+    • ESP32-WROOM board<br>
+    • Breadboard + jumper wires</p>
+
+    <button onclick="document.getElementById('codeContainer').style.display='block'; this.style.display='none';">
+        To have the Firmware click on this button
+    </button>
+
+    <div id="codeContainer">
+        <h2>Copy & Paste this into Arduino IDE → New Sketch</h2>
+<pre>
+#include &lt;Wire.h&gt;
+#include &lt;Adafruit_GFX.h&gt;
+#include &lt;Adafruit_SSD1306.h&gt;
+#include &lt;WiFi.h&gt;
+#include &lt;WebServer.h&gt;
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// JOYSTICK
+#define JOY_VERT 35
+#define JOY_BTN  32
+
+WebServer server(80);
+const char* apSSID = "Flipper32_Demo";
+
+// MENU
+const char* menuItems[] = {"Start Portal", "Info", "Blob Mode"};
+const int menuCount = 3;
+int menuIndex = 0;
+bool inMenu = true;
+bool inPortal = false;
+
+unsigned long lastMove = 0;
+const int delayMove = 200;
+const int deadzone = 300;
+
+// HTML PORTAL
+String portalPage = R"rawliteral(
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;title&gt;Flipper32&lt;/title&gt;
+&lt;style&gt;
+body {
+  background:#0b0b0f;
+  color:#ffd700;
+  font-family:monospace;
+  text-align:center;
+}
+h1 { color:#00bfff; }
+input {
+  padding:10px;
+  width:80%;
+  background:#111;
+  color:#ffd700;
+  border:1px solid #00bfff;
+}
+button {
+  padding:10px 20px;
+  background:#00bfff;
+  border:none;
+  font-weight:bold;
+}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;h1&gt;Flipper32 Demo&lt;/h1&gt;
+&lt;pre&gt;
+      __
+  ___( o)&gt;
+  \ &lt;_. )
+   `---'
+&lt;/pre&gt;
+&lt;p&gt;Demo portal&lt;/p&gt;
+&lt;form action="/send" method="POST"&gt;
+&lt;input name="text" placeholder="Type here"&gt;
+&lt;br&gt;&lt;br&gt;
+&lt;button&gt;Send&lt;/button&gt;
+&lt;/form&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+)rawliteral";
+
+void setup() {
+  pinMode(JOY_BTN, INPUT_PULLUP);
+  Serial.begin(115200);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  
+  bootScreen();
+}
+
+void loop() {
+  if (inMenu) {
+    handleMenu();
+    drawMenu();
+  }
+  if (inPortal) {
+    server.handleClient();
+    checkExit();
+  }
+}
+
+// BOOT 
+void bootScreen() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.setCursor(25, 2);
+  display.println("Flipper32");
+
+  display.setCursor(8, 16);
+  display.println("   (o U o)   ");
+  display.println("    / /  /    ");
+  display.println("     (     )    ");
+  display.println("   \\_________/  ");
+
+  display.setCursor(12, 50);
+  display.println("hug time ♡");
+
+  display.display();
+  delay(3200);
+}
+
+// MENU functions (handleMenu, drawMenu, showBlobMode, startPortal, checkExit, showInfo)
+// ... (the rest of your code here - paste everything below bootScreen() )
+
+// NOTE: paste the FULL remaining code from your sketch here (handleMenu to showInfo)
+</pre>
+        <p><strong>Important:</strong> Replace the comment "// ... (the rest of your code here)" with all the remaining functions from your sketch (handleMenu, drawMenu, showBlobMode, startPortal, checkExit, showInfo). Then select board "ESP32 Dev Module", install Adafruit libraries via Library Manager, and upload!</p>
+    </div>
+
+    <p style="margin-top:40px;">Educational demo only – have fun & stay legal! 🤍🫂</p>
+
+</body>
+</html>
