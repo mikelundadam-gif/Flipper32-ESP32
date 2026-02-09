@@ -1,0 +1,244 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// JOYSTICK
+#define JOY_VERT 35
+#define JOY_BTN  32
+
+WebServer server(80);
+const char* apSSID = "Flipper32_Demo";
+
+// MENU
+const char* menuItems[] = {"Start Portal", "Info", "Blob Mode"};
+const int menuCount = 3;
+int menuIndex = 0;
+bool inMenu = true;
+bool inPortal = false;
+
+unsigned long lastMove = 0;
+const int delayMove = 200;
+const int deadzone = 300;
+
+// HTML PORTAL
+String portalPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<title>Flipper32</title>
+<style>
+body {
+  background:#0b0b0f;
+  color:#ffd700;
+  font-family:monospace;
+  text-align:center;
+}
+h1 { color:#00bfff; }
+input {
+  padding:10px;
+  width:80%;
+  background:#111;
+  color:#ffd700;
+  border:1px solid #00bfff;
+}
+button {
+  padding:10px 20px;
+  background:#00bfff;
+  border:none;
+  font-weight:bold;
+}
+</style>
+</head>
+<body>
+<h1>Flipper32 Demo</h1>
+<pre>
+      __
+  ___( o)>
+  \ <_. )
+   `---'
+</pre>
+<p>Demo portal</p>
+<form action="/send" method="POST">
+<input name="text" placeholder="Type here">
+<br><br>
+<button>Send</button>
+</form>
+</body>
+</html>
+)rawliteral";
+
+void setup() {
+  pinMode(JOY_BTN, INPUT_PULLUP);
+  Serial.begin(115200);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  
+  bootScreen();
+}
+
+void loop() {
+  if (inMenu) {
+    handleMenu();
+    drawMenu();
+  }
+  if (inPortal) {
+    server.handleClient();
+    checkExit();
+  }
+}
+
+// ---------- BOOT ---------- 
+void bootScreen() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.setCursor(25, 2);
+  display.println("Flipper32");
+
+  // Deine neue Blob-Version – schön zentriert
+  display.setCursor(8, 16);
+  display.println("   (o U o)   ");
+  display.println("    / /  /    ");
+  display.println("     (     )    ");
+  display.println("   \\_________/  ");
+
+  display.setCursor(12, 50);
+  display.println("hug time ♡");
+
+  display.display();
+  delay(3200);
+}
+
+// ---------- MENU ----------
+void handleMenu() {
+  int y = analogRead(JOY_VERT);
+  bool click = !digitalRead(JOY_BTN);
+
+  if (millis() - lastMove < delayMove) return;
+
+  if (y < 2048 - deadzone) {
+    menuIndex = (menuIndex - 1 + menuCount) % menuCount;
+    lastMove = millis();
+  }
+  if (y > 2048 + deadzone) {
+    menuIndex = (menuIndex + 1) % menuCount;
+    lastMove = millis();
+  }
+
+  if (click) {
+    if (menuIndex == 0) startPortal();
+    if (menuIndex == 1) showInfo();
+    if (menuIndex == 2) showBlobMode();
+    lastMove = millis();
+  }
+}
+
+void drawMenu() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.println("== Flipper32 ==");
+
+  for (int i = 0; i < menuCount; i++) {
+    int y = 16 + i * 12;
+    if (i == menuIndex) {
+      display.fillRect(0, y-1, 128, 11, SSD1306_WHITE);
+      display.setTextColor(SSD1306_BLACK);
+      display.setCursor(4, y);
+      display.print("> ");
+    } else {
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(4, y);
+      display.print("  ");
+    }
+    display.println(menuItems[i]);
+  }
+  display.display();
+}
+
+// ---------- BLOB MODE ----------
+void showBlobMode() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.setCursor(8, 8);
+  display.println("   (o U o)   ");
+  display.println("    / /  /    ");
+  display.println("     (     )    ");
+  display.println("   \\_________/  ");
+
+  display.setCursor(0, 32);
+  display.println("Blob Assistant");
+  display.println("can help you but");
+  display.println("wait this feature");
+  display.println("isn't finished");
+  display.println("please wait to");
+
+  display.println("March 29");
+
+  display.display();
+  delay(5000);
+}
+
+// ---------- PORTAL ----------
+void startPortal() {
+  inMenu = false;
+  inPortal = true;
+
+  WiFi.softAP(apSSID);
+
+  server.on("/", []() {
+    server.send(200, "text/html", portalPage);
+  });
+
+  server.on("/send", []() {
+    String t = server.arg("text");
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println("Received:");
+    display.println(t);
+    display.display();
+    server.send(200, "text/html", "<h1>OK</h1>");
+  });
+
+  server.begin();
+
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Portal ON");
+  display.println(apSSID);
+  display.display();
+}
+
+void checkExit() {
+  bool click = !digitalRead(JOY_BTN);
+  int y = analogRead(JOY_VERT);
+
+  if (click && y < 2048 - deadzone) {
+    server.stop();
+    WiFi.softAPdisconnect(true);
+    inPortal = false;
+    inMenu = true;
+  }
+}
+
+// ---------- INFO ----------
+void showInfo() {
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.println("Flipper32");
+  display.println("Educational Demo");
+  display.display();
+  delay(1500);
+}
